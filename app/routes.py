@@ -44,26 +44,47 @@ def monte_carlo_simulation(closing_prices, num_simulations=1000, time_horizon=25
 
 @routes.route('/calculate-taxes', methods=['POST'])
 def calculate_taxes():
-    if request.method == 'POST':
-        data = request.json
-        income = data.get('income', 0)
-        investment_gains = data.get('investment_gains', 0)
-        investment_losses = data.get('investment_losses', 0)
+    try:
+        if request.method == 'POST':
+            data = request.json
+            income = data.get('income', 0)
+            tax_bracket = data.get('tax_bracket', 0.2)
+            investment_gains = data.get('investment_gains', 0)
+            investment_losses = data.get('investment_losses', 0)
+            cost_basis = data.get('cost_basis', 0)
 
-        # Placeholder tax calculation logic
-        # Example: Basic flat tax rate for simplicity
-        tax_rate = 0.2
-        total_taxable_income = income + investment_gains - investment_losses
-        tax_owed = total_taxable_income * tax_rate
+            # Calculate capital gains or losses
+            net_investment = investment_gains - investment_losses - cost_basis
 
-        return jsonify({
-            "income": income,
-            "investment_gains": investment_gains,
-            "investment_losses": investment_losses,
-            "tax_owed": tax_owed
-        }), 200
-    else:
-        return jsonify({"error": "Invalid request method"}), 405
+            # Calculate taxes owed
+            total_taxable_income = income + net_investment
+            tax_owed = total_taxable_income * tax_bracket
+
+            # Debugging output
+            print(f"Income: {income}")
+            print(f"Tax Bracket: {tax_bracket}")
+            print(f"Investment Gains: {investment_gains}")
+            print(f"Investment Losses: {investment_losses}")
+            print(f"Cost Basis: {cost_basis}")
+            print(f"Net Investment: {net_investment}")
+            print(f"Tax Owed: {tax_owed}")
+
+            return jsonify({
+                "income": income,
+                "tax_bracket": tax_bracket,
+                "investment_gains": investment_gains,
+                "investment_losses": investment_losses,
+                "cost_basis": cost_basis,
+                "net_investment": net_investment,
+                "tax_owed": tax_owed
+            }), 200
+        else:
+            return jsonify({"error": "Invalid request method"}), 405
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+
+
 
 
 @routes.route('/optimize-portfolio', methods=['POST'])
