@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 import requests
 import os
+import numpy as np
 
 routes = Blueprint('routes', __name__)
 
@@ -17,6 +18,29 @@ def fetch_stock_data(symbol):
             return {"error": "Invalid symbol or data not available"}
     else:
         return {"error": "Failed to fetch data from Alpha Vantage"}
+
+
+def monte_carlo_simulation(closing_prices, num_simulations=1000, time_horizon=252):
+    # Convert closing_prices to a numpy array
+    closing_prices = np.array(closing_prices)
+
+    # Calculate log returns using numpy
+    log_returns = np.diff(np.log(closing_prices))
+
+    mean = log_returns.mean()
+    variance = log_returns.var()
+    drift = mean - (0.5 * variance)
+    stddev = log_returns.std()
+
+    # Create an array to store the simulations
+    simulations = np.zeros((time_horizon, num_simulations))
+    simulations[0] = closing_prices[-1]
+    for t in range(1, time_horizon):
+        random_shocks = np.random.normal(drift, stddev, num_simulations)
+        simulations[t] = simulations[t - 1] * np.exp(random_shocks)
+
+    return simulations
+
 
 @routes.route('/calculate-taxes', methods=['POST'])
 def calculate_taxes():
@@ -79,3 +103,23 @@ def optimize_portfolio():
         return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
 
 
+@routes.route('/monte-carlo', methods=['POST'])
+def monte_carlo():
+    try:
+        if request.method == 'POST':
+            data = request.json
+            symbol = data.get("symbol")
+
+            # Fetch stock data
+            stock_data = fetch_stock_data(symbol)
+            closing_prices = [float(value['4. close']) for key, value in stock_data.items()]
+
+            # Run Monte Carlo simulation
+            simulations = monte_carlo_simulation(closing_prices)
+
+            return jsonify({"simulations": simulations.tolist()}), 200
+        else:
+            return jsonify({"error": "Invalid request method"}), 405
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
