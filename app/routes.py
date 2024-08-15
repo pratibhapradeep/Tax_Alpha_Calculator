@@ -1,6 +1,6 @@
 import numpy as np
 from flask import Blueprint, request, jsonify
-from .calculations import calculate_taxes, optimize_portfolio, fetch_current_prices, fetch_stock_data, monte_carlo_simulation
+from .calculations import calculate_taxes, optimize_portfolio, fetch_current_prices, fetch_stock_data, monte_carlo_simulation_multi
 
 routes = Blueprint('routes', __name__)
 
@@ -18,12 +18,22 @@ def calculate_taxes_route():
 def optimize_portfolio_route():
     try:
         data = request.json
-        result = optimize_portfolio(data)
-        if "error" in result:
-            return jsonify(result), 400
-        response_text = (f"For the stock symbol '{result['symbol']}', the optimal price based on the Monte Carlo simulation "
-                         f"is approximately ${result['optimal_price']:.2f}. The expected return mean is ${result['expected_return_mean']:.2f} "
-                         f"with a standard deviation of ${result['expected_return_std']:.2f}.")
+        portfolio = data.get('portfolio')
+        if not portfolio:
+            return jsonify({"error": "No portfolio data provided"}), 400
+
+        # Perform portfolio optimization
+        optimal_weights, expected_portfolio_return, portfolio_risk, sharpe_ratio = optimize_portfolio(portfolio)
+
+        # Create a user-friendly explanation
+        response_text = (
+            f"After analyzing your portfolio, the optimal allocation to maximize returns while minimizing risk is:"
+            f"{', '.join([f'{symbol}: {weight:.2%}' for symbol, weight in optimal_weights.items()])}."
+            f"The expected return of the optimized portfolio is {expected_portfolio_return:.2%}, "
+            f"with a risk (standard deviation) of {portfolio_risk:.2%}."
+            f"The Sharpe ratio, which indicates the risk-adjusted return, is {sharpe_ratio:.2f}."
+        )
+
         return jsonify({"message": response_text}), 200
     except Exception as e:
         return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
@@ -32,27 +42,24 @@ def optimize_portfolio_route():
 def monte_carlo_route():
     try:
         data = request.json
-        symbol = data.get("symbol")
-        stock_data = fetch_stock_data(symbol)
+        portfolio = data.get("portfolio", [])
 
-        if "error" in stock_data:
-            return jsonify(stock_data), 400
+        # Perform Monte Carlo simulation for the entire portfolio
+        simulations = monte_carlo_simulation_multi(portfolio)
 
-        closing_prices = [float(value['4. close']) for date, value in stock_data.items()]
-        simulations = monte_carlo_simulation(closing_prices)
+        # Calculate some summary statistics to return
+        portfolio_expected_returns = simulations.mean(axis=2).mean(axis=1)
+        portfolio_risk = np.std(simulations.mean(axis=2), axis=1)
 
-        # Provide a summary of the Monte Carlo simulation
-        mean_simulated_price = np.mean(simulations[-1])
-        stddev_simulated_price = np.std(simulations[-1])
-
-        response_text = (f"The Monte Carlo simulation for '{symbol}' was successful. "
-                         f"After simulating 1000 potential outcomes over a year, "
-                         f"the average simulated end price is approximately ${mean_simulated_price:.2f} "
-                         f"with a standard deviation of ${stddev_simulated_price:.2f}.")
+        # Generate a user-friendly summary
+        response_text = (f"The Monte Carlo simulation for your portfolio was successful. "
+                         f"Expected returns for your portfolio stocks are approximately {portfolio_expected_returns.tolist()}, "
+                         f"with associated risks (standard deviation) of {portfolio_risk.tolist()}.")
 
         return jsonify({"message": response_text}), 200
     except Exception as e:
         return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+
 
 
 
