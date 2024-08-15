@@ -19,6 +19,24 @@ def fetch_stock_data(symbol):
     else:
         return {"error": "Failed to fetch data from Alpha Vantage"}
 
+def fetch_current_prices(portfolio):
+    updated_portfolio = []
+    for security in portfolio:
+        symbol = security['symbol']
+        url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}'
+        response = requests.get(url)
+        data = response.json()
+
+        # Get the most recent closing price
+        if "Time Series (Daily)" in data:
+            recent_date = sorted(data["Time Series (Daily)"].keys(), reverse=True)[0]
+            current_price = float(data["Time Series (Daily)"][recent_date]['4. close'])
+            security['current_price'] = current_price
+        else:
+            security['current_price'] = None  # Handle case where data is not available
+
+        updated_portfolio.append(security)
+    return updated_portfolio
 
 def monte_carlo_simulation(closing_prices, num_simulations=1000, time_horizon=252):
     # Convert closing_prices to a numpy array
@@ -143,4 +161,56 @@ def monte_carlo():
             return jsonify({"error": "Invalid request method"}), 405
     except Exception as e:
         print(f"An error occurred: {e}")
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+
+@routes.route('/input-portfolio', methods=['POST'])
+def input_portfolio():
+    try:
+        if request.method == 'POST':
+            portfolio = request.json.get('portfolio', [])
+            # Here we would typically save the portfolio to a database or session
+            # For now, we'll just return it as is for testing purposes
+            return jsonify({"portfolio": portfolio}), 200
+        else:
+            return jsonify({"error": "Invalid request method"}), 405
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+
+@routes.route('/tax-loss-harvesting', methods=['POST'])
+def tax_loss_harvesting():
+    try:
+        data = request.json
+        portfolio = data.get('portfolio', [])
+        tax_bracket = data.get('tax_bracket', 0.2)
+
+        portfolio = fetch_current_prices(portfolio)
+
+        recommended_sales = []
+        total_losses = 0
+
+        for security in portfolio:
+            symbol = security.get('symbol')
+            purchase_price = security.get('purchase_price')
+            current_price = security.get('current_price')
+            shares = security.get('shares')
+
+            if current_price is not None:
+                loss = (purchase_price - current_price) * shares
+                if loss > 0:
+                    recommended_sales.append({
+                        "symbol": symbol,
+                        "loss": loss,
+                        "shares": shares
+                    })
+                    total_losses += loss
+
+        tax_savings = total_losses * tax_bracket
+
+        return jsonify({
+            "recommended_sales": recommended_sales,
+            "total_losses": total_losses,
+            "tax_savings": tax_savings
+        }), 200
+    except Exception as e:
         return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
