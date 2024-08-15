@@ -7,6 +7,9 @@ routes = Blueprint('routes', __name__)
 
 ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')
 
+# Global variable to store portfolio
+stored_portfolio = None
+
 def fetch_stock_data(symbol):
     url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}'
     response = requests.get(url)
@@ -62,129 +65,126 @@ def monte_carlo_simulation(closing_prices, num_simulations=1000, time_horizon=25
 
 @routes.route('/calculate-taxes', methods=['POST'])
 def calculate_taxes():
+    global stored_portfolio
     try:
-        if request.method == 'POST':
-            data = request.json
-            income = data.get('income', 0)
-            tax_bracket = data.get('tax_bracket', 0.2)
-            investment_gains = data.get('investment_gains', 0)
-            investment_losses = data.get('investment_losses', 0)
-            cost_basis = data.get('cost_basis', 0)
+        if not stored_portfolio:
+            return jsonify({"message": "Please provide your portfolio first."}), 400
 
-            # Calculate capital gains or losses
-            net_investment = investment_gains - investment_losses - cost_basis
+        data = request.json
+        income = data.get('income', 0)
+        tax_bracket = data.get('tax_bracket', 0.2)
+        investment_gains = data.get('investment_gains', 0)
+        investment_losses = data.get('investment_losses', 0)
+        cost_basis = data.get('cost_basis', 0)
 
-            # Calculate taxes owed
-            total_taxable_income = income + net_investment
-            tax_owed = total_taxable_income * tax_bracket
+        # Calculate capital gains or losses
+        net_investment = investment_gains - investment_losses - cost_basis
 
-            # Debugging output
-            print(f"Income: {income}")
-            print(f"Tax Bracket: {tax_bracket}")
-            print(f"Investment Gains: {investment_gains}")
-            print(f"Investment Losses: {investment_losses}")
-            print(f"Cost Basis: {cost_basis}")
-            print(f"Net Investment: {net_investment}")
-            print(f"Tax Owed: {tax_owed}")
+        # Calculate taxes owed
+        total_taxable_income = income + net_investment
+        tax_owed = total_taxable_income * tax_bracket
 
-            return jsonify({
-                "income": income,
-                "tax_bracket": tax_bracket,
-                "investment_gains": investment_gains,
-                "investment_losses": investment_losses,
-                "cost_basis": cost_basis,
-                "net_investment": net_investment,
-                "tax_owed": tax_owed
-            }), 200
-        else:
-            return jsonify({"error": "Invalid request method"}), 405
+        message = (
+            f"Based on your income of ${income}, tax bracket of {tax_bracket*100}%, "
+            f"investment gains of ${investment_gains}, losses of ${investment_losses}, and cost basis of ${cost_basis}, "
+            f"your total taxable income is ${total_taxable_income}, resulting in taxes owed of ${tax_owed}."
+        )
+
+        return jsonify({"message": message}), 200
     except Exception as e:
-        print(f"An error occurred: {e}")
-        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
-
-
+        return jsonify({"message": "An error occurred while calculating taxes.", "details": str(e)}), 500
 
 
 @routes.route('/optimize-portfolio', methods=['POST'])
 def optimize_portfolio():
+    global stored_portfolio
     try:
-        if request.method == 'POST':
-            data = request.json
-            symbol = data.get("symbol")
+        if not stored_portfolio:
+            return jsonify({"message": "Please provide your portfolio first."}), 400
 
-            # Fetch stock data
-            stock_data = fetch_stock_data(symbol)
+        data = request.json
+        symbol = data.get("symbol")
 
-            if "error" in stock_data:
-                return jsonify(stock_data), 400
+        # Fetch stock data
+        stock_data = fetch_stock_data(symbol)
 
-            closing_prices = []
-            for date, value in stock_data.items():
-                try:
-                    closing_price = float(value['4. close'])
-                    closing_prices.append(closing_price)
-                except KeyError as e:
-                    print(f"KeyError: {e} - Skipping this entry")
+        if "error" in stock_data:
+            return jsonify({"message": stock_data["error"]}), 400
 
-            if closing_prices:
-                average_price = sum(closing_prices) / len(closing_prices)
-            else:
-                average_price = None
+        # Get closing prices for Monte Carlo simulation
+        closing_prices = [float(value['4. close']) for date, value in stock_data.items()]
 
-            return jsonify({
-                "symbol": symbol,
-                "average_price": average_price,
-                "stock_data": stock_data
-            }), 200
-        else:
-            return jsonify({"error": "Invalid request method"}), 405
+        if not closing_prices:
+            return jsonify({"message": "No closing prices available for Monte Carlo simulation."}), 400
+
+        # Run Monte Carlo simulation to predict future prices
+        simulations = monte_carlo_simulation(closing_prices)
+
+        # Analyze simulations to determine optimal strategy
+        expected_returns = simulations.mean(axis=0)
+        risk = simulations.std(axis=0)
+
+        # Example optimization logic: Maximize return while minimizing risk
+        optimal_index = np.argmax(expected_returns / risk)
+
+        optimal_price = expected_returns[optimal_index]
+
+        message = (
+            f"The optimal future price for {symbol} is approximately ${optimal_price:.2f}. "
+            f"The expected return over time is around ${np.mean(expected_returns):.2f}, with an associated risk of ${np.mean(risk):.2f}."
+        )
+
+        return jsonify({"message": message}), 200
     except Exception as e:
-        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+        return jsonify({"message": "An error occurred while optimizing the portfolio.", "details": str(e)}), 500
 
 
 @routes.route('/monte-carlo', methods=['POST'])
 def monte_carlo():
+    global stored_portfolio
     try:
-        if request.method == 'POST':
-            data = request.json
-            symbol = data.get("symbol")
+        if not stored_portfolio:
+            return jsonify({"message": "Please provide your portfolio first."}), 400
 
-            # Fetch stock data
-            stock_data = fetch_stock_data(symbol)
-            closing_prices = [float(value['4. close']) for key, value in stock_data.items()]
+        data = request.json
+        symbol = data.get("symbol")
 
-            # Run Monte Carlo simulation
-            simulations = monte_carlo_simulation(closing_prices)
+        # Fetch stock data
+        stock_data = fetch_stock_data(symbol)
+        closing_prices = [float(value['4. close']) for key, value in stock_data.items()]
 
-            return jsonify({"simulations": simulations.tolist()}), 200
-        else:
-            return jsonify({"error": "Invalid request method"}), 405
+        # Run Monte Carlo simulation
+        simulations = monte_carlo_simulation(closing_prices)
+
+        message = f"Monte Carlo simulation for {symbol} has been successfully run, with the predicted prices varying over time based on historical data."
+
+        return jsonify({"message": message}), 200
     except Exception as e:
-        print(f"An error occurred: {e}")
-        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+        return jsonify({"message": "An error occurred while running Monte Carlo simulation.", "details": str(e)}), 500
 
 @routes.route('/input-portfolio', methods=['POST'])
 def input_portfolio():
+    global stored_portfolio
     try:
         if request.method == 'POST':
-            portfolio = request.json.get('portfolio', [])
-            # Here we would typically save the portfolio to a database or session
-            # For now, we'll just return it as is for testing purposes
-            return jsonify({"portfolio": portfolio}), 200
+            stored_portfolio = request.json.get('portfolio', [])
+            return jsonify({"message": "Portfolio has been successfully stored."}), 200
         else:
-            return jsonify({"error": "Invalid request method"}), 405
+            return jsonify({"message": "Invalid request method."}), 405
     except Exception as e:
-        print(f"An error occurred: {e}")
-        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+        return jsonify({"message": "An error occurred while storing the portfolio.", "details": str(e)}), 500
 
 @routes.route('/tax-loss-harvesting', methods=['POST'])
 def tax_loss_harvesting():
+    global stored_portfolio
     try:
+        if not stored_portfolio:
+            return jsonify({"message": "Please provide your portfolio first."}), 400
+
         data = request.json
-        portfolio = data.get('portfolio', [])
         tax_bracket = data.get('tax_bracket', 0.2)
 
-        portfolio = fetch_current_prices(portfolio)
+        portfolio = fetch_current_prices(stored_portfolio)
 
         recommended_sales = []
         total_losses = 0
@@ -207,10 +207,11 @@ def tax_loss_harvesting():
 
         tax_savings = total_losses * tax_bracket
 
-        return jsonify({
-            "recommended_sales": recommended_sales,
-            "total_losses": total_losses,
-            "tax_savings": tax_savings
-        }), 200
+        message = (
+            f"Based on the current portfolio, you can harvest a total of ${total_losses} in losses, "
+            f"which will save you approximately ${tax_savings} in taxes."
+        )
+
+        return jsonify({"message": message}), 200
     except Exception as e:
-        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+        return jsonify({"message": "An error occurred while performing tax-loss harvesting.", "details": str(e)}), 500
