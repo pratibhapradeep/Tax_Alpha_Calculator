@@ -1,190 +1,78 @@
-from flask import Blueprint, request, jsonify
-import requests
-import os
 import numpy as np
+from flask import Blueprint, request, jsonify
+from .calculations import calculate_taxes, optimize_portfolio, fetch_current_prices, fetch_stock_data, monte_carlo_simulation
 
 routes = Blueprint('routes', __name__)
 
-ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')
-
-# Global variable to store portfolio
-stored_portfolio = None
-
-def fetch_stock_data(symbol):
-    url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}'
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        if "Time Series (Daily)" in data:
-            return data["Time Series (Daily)"]
-        else:
-            return {"error": "Invalid symbol or data not available"}
-    else:
-        return {"error": "Failed to fetch data from Alpha Vantage"}
-
-def fetch_current_prices(portfolio):
-    updated_portfolio = []
-    for security in portfolio:
-        symbol = security['symbol']
-        url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}'
-        response = requests.get(url)
-        data = response.json()
-
-        # Get the most recent closing price
-        if "Time Series (Daily)" in data:
-            recent_date = sorted(data["Time Series (Daily)"].keys(), reverse=True)[0]
-            current_price = float(data["Time Series (Daily)"][recent_date]['4. close'])
-            security['current_price'] = current_price
-        else:
-            security['current_price'] = None  # Handle case where data is not available
-
-        updated_portfolio.append(security)
-    return updated_portfolio
-
-def monte_carlo_simulation(closing_prices, num_simulations=1000, time_horizon=252):
-    # Convert closing_prices to a numpy array
-    closing_prices = np.array(closing_prices)
-
-    # Calculate log returns using numpy
-    log_returns = np.diff(np.log(closing_prices))
-
-    mean = log_returns.mean()
-    variance = log_returns.var()
-    drift = mean - (0.5 * variance)
-    stddev = log_returns.std()
-
-    # Create an array to store the simulations
-    simulations = np.zeros((time_horizon, num_simulations))
-    simulations[0] = closing_prices[-1]
-    for t in range(1, time_horizon):
-        random_shocks = np.random.normal(drift, stddev, num_simulations)
-        simulations[t] = simulations[t - 1] * np.exp(random_shocks)
-
-    return simulations
-
-
 @routes.route('/calculate-taxes', methods=['POST'])
-def calculate_taxes():
-    global stored_portfolio
+def calculate_taxes_route():
     try:
-        if not stored_portfolio:
-            return jsonify({"message": "Please provide your portfolio first."}), 400
-
         data = request.json
-        income = data.get('income', 0)
-        tax_bracket = data.get('tax_bracket', 0.2)
-        investment_gains = data.get('investment_gains', 0)
-        investment_losses = data.get('investment_losses', 0)
-        cost_basis = data.get('cost_basis', 0)
-
-        # Calculate capital gains or losses
-        net_investment = investment_gains - investment_losses - cost_basis
-
-        # Calculate taxes owed
-        total_taxable_income = income + net_investment
-        tax_owed = total_taxable_income * tax_bracket
-
-        message = (
-            f"Based on your income of ${income}, tax bracket of {tax_bracket*100}%, "
-            f"investment gains of ${investment_gains}, losses of ${investment_losses}, and cost basis of ${cost_basis}, "
-            f"your total taxable income is ${total_taxable_income}, resulting in taxes owed of ${tax_owed}."
-        )
-
-        return jsonify({"message": message}), 200
+        result = calculate_taxes(data)
+        response_text = result['explanation']
+        return jsonify({"message": response_text}), 200
     except Exception as e:
-        return jsonify({"message": "An error occurred while calculating taxes.", "details": str(e)}), 500
-
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
 
 @routes.route('/optimize-portfolio', methods=['POST'])
-def optimize_portfolio():
-    global stored_portfolio
+def optimize_portfolio_route():
     try:
-        if not stored_portfolio:
-            return jsonify({"message": "Please provide your portfolio first."}), 400
+        data = request.json
+        result = optimize_portfolio(data)
+        if "error" in result:
+            return jsonify(result), 400
+        response_text = (f"For the stock symbol '{result['symbol']}', the optimal price based on the Monte Carlo simulation "
+                         f"is approximately ${result['optimal_price']:.2f}. The expected return mean is ${result['expected_return_mean']:.2f} "
+                         f"with a standard deviation of ${result['expected_return_std']:.2f}.")
+        return jsonify({"message": response_text}), 200
+    except Exception as e:
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
 
+@routes.route('/monte-carlo', methods=['POST'])
+def monte_carlo_route():
+    try:
         data = request.json
         symbol = data.get("symbol")
-
-        # Fetch stock data
         stock_data = fetch_stock_data(symbol)
 
         if "error" in stock_data:
-            return jsonify({"message": stock_data["error"]}), 400
+            return jsonify(stock_data), 400
 
-        # Get closing prices for Monte Carlo simulation
         closing_prices = [float(value['4. close']) for date, value in stock_data.items()]
-
-        if not closing_prices:
-            return jsonify({"message": "No closing prices available for Monte Carlo simulation."}), 400
-
-        # Run Monte Carlo simulation to predict future prices
         simulations = monte_carlo_simulation(closing_prices)
 
-        # Analyze simulations to determine optimal strategy
-        expected_returns = simulations.mean(axis=0)
-        risk = simulations.std(axis=0)
+        # Provide a summary of the Monte Carlo simulation
+        mean_simulated_price = np.mean(simulations[-1])
+        stddev_simulated_price = np.std(simulations[-1])
 
-        # Example optimization logic: Maximize return while minimizing risk
-        optimal_index = np.argmax(expected_returns / risk)
+        response_text = (f"The Monte Carlo simulation for '{symbol}' was successful. "
+                         f"After simulating 1000 potential outcomes over a year, "
+                         f"the average simulated end price is approximately ${mean_simulated_price:.2f} "
+                         f"with a standard deviation of ${stddev_simulated_price:.2f}.")
 
-        optimal_price = expected_returns[optimal_index]
-
-        message = (
-            f"The optimal future price for {symbol} is approximately ${optimal_price:.2f}. "
-            f"The expected return over time is around ${np.mean(expected_returns):.2f}, with an associated risk of ${np.mean(risk):.2f}."
-        )
-
-        return jsonify({"message": message}), 200
+        return jsonify({"message": response_text}), 200
     except Exception as e:
-        return jsonify({"message": "An error occurred while optimizing the portfolio.", "details": str(e)}), 500
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
 
 
-@routes.route('/monte-carlo', methods=['POST'])
-def monte_carlo():
-    global stored_portfolio
-    try:
-        if not stored_portfolio:
-            return jsonify({"message": "Please provide your portfolio first."}), 400
-
-        data = request.json
-        symbol = data.get("symbol")
-
-        # Fetch stock data
-        stock_data = fetch_stock_data(symbol)
-        closing_prices = [float(value['4. close']) for key, value in stock_data.items()]
-
-        # Run Monte Carlo simulation
-        simulations = monte_carlo_simulation(closing_prices)
-
-        message = f"Monte Carlo simulation for {symbol} has been successfully run, with the predicted prices varying over time based on historical data."
-
-        return jsonify({"message": message}), 200
-    except Exception as e:
-        return jsonify({"message": "An error occurred while running Monte Carlo simulation.", "details": str(e)}), 500
 
 @routes.route('/input-portfolio', methods=['POST'])
-def input_portfolio():
-    global stored_portfolio
+def input_portfolio_route():
     try:
-        if request.method == 'POST':
-            stored_portfolio = request.json.get('portfolio', [])
-            return jsonify({"message": "Portfolio has been successfully stored."}), 200
-        else:
-            return jsonify({"message": "Invalid request method."}), 405
+        portfolio = request.json.get('portfolio', [])
+        response_text = f"Your portfolio has been recorded with {len(portfolio)} securities."
+        return jsonify({"message": response_text}), 200
     except Exception as e:
-        return jsonify({"message": "An error occurred while storing the portfolio.", "details": str(e)}), 500
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
 
 @routes.route('/tax-loss-harvesting', methods=['POST'])
-def tax_loss_harvesting():
-    global stored_portfolio
+def tax_loss_harvesting_route():
     try:
-        if not stored_portfolio:
-            return jsonify({"message": "Please provide your portfolio first."}), 400
-
         data = request.json
+        portfolio = data.get('portfolio', [])
         tax_bracket = data.get('tax_bracket', 0.2)
 
-        portfolio = fetch_current_prices(stored_portfolio)
+        portfolio = fetch_current_prices(portfolio)
 
         recommended_sales = []
         total_losses = 0
@@ -207,11 +95,12 @@ def tax_loss_harvesting():
 
         tax_savings = total_losses * tax_bracket
 
-        message = (
-            f"Based on the current portfolio, you can harvest a total of ${total_losses} in losses, "
-            f"which will save you approximately ${tax_savings} in taxes."
-        )
+        if recommended_sales:
+            response_text = (f"Tax Loss Harvesting Summary: You can sell {len(recommended_sales)} securities to realize a total loss of ${total_losses:.2f}. "
+                             f"This could save you approximately ${tax_savings:.2f} in taxes based on your tax bracket of {tax_bracket * 100}%.")
+        else:
+            response_text = "Tax Loss Harvesting Summary: No securities meet the criteria for tax loss harvesting."
 
-        return jsonify({"message": message}), 200
+        return jsonify({"message": response_text}), 200
     except Exception as e:
-        return jsonify({"message": "An error occurred while performing tax-loss harvesting.", "details": str(e)}), 500
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
