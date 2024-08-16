@@ -1,10 +1,21 @@
 import requests
 import os
 import numpy as np
+from flask import session
 
 ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')
 
+
 def fetch_stock_data(symbol):
+    """
+    Fetches the daily time series data for a given stock symbol from Alpha Vantage API.
+
+    Args:
+        symbol (str): Stock symbol to fetch data for.
+
+    Returns:
+        dict: A dictionary containing time series data or an error message.
+    """
     url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}'
     response = requests.get(url)
     if response.status_code == 200:
@@ -16,32 +27,62 @@ def fetch_stock_data(symbol):
     else:
         return {"error": "Failed to fetch data from Alpha Vantage"}
 
+
 def fetch_current_prices(portfolio):
+    """
+    Fetches the current prices for the securities in the portfolio.
+
+    Args:
+        portfolio (list): List of dictionaries containing 'symbol', 'purchase_price', and 'shares' for each security.
+
+    Returns:
+        list: Updated portfolio with current prices included.
+    """
     updated_portfolio = []
     for security in portfolio:
         symbol = security['symbol']
-        url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={ALPHA_VANTAGE_API_KEY}'
-        response = requests.get(url)
-        data = response.json()
+        stock_data = fetch_stock_data(symbol)
 
-        if "Time Series (Daily)" in data:
-            recent_date = sorted(data["Time Series (Daily)"].keys(), reverse=True)[0]
-            current_price = float(data["Time Series (Daily)"][recent_date]['4. close'])
+        if isinstance(stock_data, dict) and "error" not in stock_data:
+            recent_date = sorted(stock_data.keys(), reverse=True)[0]
+            current_price = float(stock_data[recent_date]['4. close'])
             security['current_price'] = current_price
         else:
             security['current_price'] = None
 
         updated_portfolio.append(security)
+
+    # Store the updated portfolio in the session
+    session['portfolio'] = updated_portfolio
+
     return updated_portfolio
 
 
 def monte_carlo_simulation_multi(portfolio, num_simulations=1000, time_horizon=252):
+    """
+    Runs a Monte Carlo simulation to predict future portfolio returns.
+
+    Args:
+        portfolio (list): List of securities with their historical price data.
+        num_simulations (int): Number of simulations to run. Default is 1000.
+        time_horizon (int): Number of days to simulate. Default is 252 (1 trading year).
+
+    Returns:
+        np.ndarray: A 3D numpy array containing the simulation results.
+    """
     closing_prices = []
     for stock in portfolio:
         symbol = stock['symbol']
         stock_data = fetch_stock_data(symbol)
-        prices = [float(value['4. close']) for date, value in stock_data.items()]
-        closing_prices.append(prices)
+        if isinstance(stock_data, dict) and "error" not in stock_data:
+            prices = [float(value['4. close']) for date, value in stock_data.items()]
+            closing_prices.append(prices)
+        else:
+            print(f"Invalid stock data for {symbol}, skipping.")
+            continue
+
+    if not closing_prices:
+        raise ValueError("No valid stock data found for the portfolio.")
 
     # Convert to numpy array for easier manipulation
     closing_prices = np.array(closing_prices)
@@ -64,6 +105,15 @@ def monte_carlo_simulation_multi(portfolio, num_simulations=1000, time_horizon=2
 
 
 def calculate_taxes(data):
+    """
+    Calculates taxes based on the user's income, investment gains, and losses.
+
+    Args:
+        data (dict): Dictionary containing 'income', 'tax_bracket', 'investment_gains', 'investment_losses', and 'cost_basis'.
+
+    Returns:
+        dict: Dictionary containing the tax owed and an explanation.
+    """
     income = data.get('income', 0)
     tax_bracket = data.get('tax_bracket', 0.2)
     investment_gains = data.get('investment_gains', 0)
@@ -94,6 +144,15 @@ from scipy.optimize import minimize
 
 
 def optimize_portfolio(portfolio):
+    """
+    Optimizes the portfolio allocation to maximize returns and minimize risk.
+
+    Args:
+        portfolio (list): List of securities in the portfolio.
+
+    Returns:
+        tuple: Optimal weights for each security, expected portfolio return, portfolio risk, and Sharpe ratio.
+    """
     num_stocks = len(portfolio)
     simulations = monte_carlo_simulation_multi(portfolio)
 
@@ -130,3 +189,39 @@ def optimize_portfolio(portfolio):
 
     return optimal_weights_dict, portfolio_return, portfolio_risk, sharpe_ratio
 
+
+def enhanced_tax_loss_harvesting(portfolio, tax_bracket=0.2):
+    """
+    Performs tax loss harvesting to minimize tax liabilities.
+
+    Args:
+        portfolio (list): List of securities in the portfolio.
+        tax_bracket (float): The user's tax bracket.
+
+    Returns:
+        tuple: Recommended sales, total losses, and tax savings.
+    """
+    # Assume the portfolio contains user-provided current prices
+    recommended_sales = []
+    total_losses = 0
+
+    # Calculate losses based on purchase prices and user-provided current prices
+    for security in portfolio:
+        symbol = security.get('symbol')
+        purchase_price = security.get('purchase_price')
+        current_price = security.get('current_price',
+                                     purchase_price)  # Fall back to purchase price if no current price is provided
+        shares = security.get('shares')
+
+        loss = (purchase_price - current_price) * shares
+        if loss > 0:
+            recommended_sales.append({
+                "symbol": symbol,
+                "loss": loss,
+                "shares": shares
+            })
+            total_losses += loss
+
+    tax_savings = total_losses * tax_bracket
+
+    return recommended_sales, total_losses, tax_savings

@@ -11,6 +11,8 @@ def create_app():
     app.config['DEBUG'] = True
     app.config['ENV'] = 'development'
 
+    app.secret_key = os.getenv('FLASK_SECRET_KEY')
+
     # Load environment variables from .env file
     from dotenv import load_dotenv
     load_dotenv()
