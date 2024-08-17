@@ -201,19 +201,23 @@ def enhanced_tax_loss_harvesting(portfolio, tax_bracket=0.2):
     Returns:
         tuple: Recommended sales, total losses, and tax savings.
     """
-    # Assume the portfolio contains user-provided current prices
+    # Ensure the portfolio has been updated with current prices
+    portfolio = fetch_current_prices(portfolio)
+
     recommended_sales = []
     total_losses = 0
 
-    # Calculate losses based on purchase prices and user-provided current prices
     for security in portfolio:
         symbol = security.get('symbol')
         purchase_price = security.get('purchase_price')
-        current_price = security.get('current_price',
-                                     purchase_price)  # Fall back to purchase price if no current price is provided
+        current_price = security.get('current_price')
         shares = security.get('shares')
 
+        # Debugging output to ensure correct prices are being used
+        print(f"Symbol: {symbol}, Purchase Price: {purchase_price}, Current Price: {current_price}, Shares: {shares}")
+
         loss = (purchase_price - current_price) * shares
+        print(f"Calculated Loss for {symbol}: {loss}")  # Debugging output
         if loss > 0:
             recommended_sales.append({
                 "symbol": symbol,
@@ -225,3 +229,4 @@ def enhanced_tax_loss_harvesting(portfolio, tax_bracket=0.2):
     tax_savings = total_losses * tax_bracket
 
     return recommended_sales, total_losses, tax_savings
+

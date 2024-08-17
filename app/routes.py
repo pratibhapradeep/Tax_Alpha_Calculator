@@ -186,6 +186,9 @@ def tax_loss_harvesting_route():
     except Exception as e:
         return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
 
-
+@routes.route('/clear-session', methods=['POST'])
+def clear_session():
+    session.clear()
+    return jsonify({"message": "Session cleared"}), 200
 
 
