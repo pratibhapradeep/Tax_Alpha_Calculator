@@ -14,32 +14,6 @@ from .calculations import (
 routes = Blueprint('routes', __name__)
 
 
-@routes.route('/calculate-taxes', methods=['POST'])
-def calculate_taxes_route():
-    """
-    Calculate taxes based on the provided income and investment data.
-
-    Expected JSON data:
-    {
-        "income": float,
-        "tax_bracket": float,
-        "investment_gains": float,
-        "investment_losses": float,
-        "cost_basis": float
-    }
-
-    Returns:
-        JSON response with a message explaining the tax calculation.
-    """
-    try:
-        data = request.json
-        result = calculate_taxes(data)
-        response_text = result['explanation']
-        return jsonify({"message": response_text}), 200
-    except Exception as e:
-        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
-
-
 @routes.route('/input-portfolio', methods=['POST'])
 def input_portfolio_route():
     """
@@ -49,20 +23,61 @@ def input_portfolio_route():
     {
         "portfolio": [
             {"symbol": "str", "purchase_price": float, "shares": int}
-        ]
+        ],
+        "income": float,
+        "tax_bracket": float,
+        "investment_gains": float,
+        "investment_losses": float,
+        "cost_basis": float
     }
 
     Returns:
-        JSON response confirming that the portfolio has been recorded.
+        JSON response confirming that the portfolio and tax data have been recorded.
     """
     try:
-        portfolio = request.json.get('portfolio', [])
+        data = request.json
+        portfolio = data.get('portfolio', [])
         session['portfolio'] = portfolio  # Store portfolio in session
-        print(f"Stored portfolio: {session['portfolio']}")  # Debugging
-        response_text = f"Your portfolio has been recorded with {len(portfolio)} securities."
+        session['tax_data'] = {
+            "income": data.get("income"),
+            "tax_bracket": data.get("tax_bracket"),
+            "investment_gains": data.get("investment_gains"),
+            "investment_losses": data.get("investment_losses"),
+            "cost_basis": data.get("cost_basis")
+        }  # Store tax-related data in session
+
+        print(f"Stored portfolio in session: {session.get('portfolio')}")  # Debugging
+        print(f"Stored tax data in session: {session.get('tax_data')}")  # Debugging
+
+        response_text = f"Your portfolio and tax data have been recorded with {len(portfolio)} securities."
+        return jsonify({"message": response_text}), 200
+    except Exception as e:
+        print(f"Error storing data in session: {str(e)}")  # Debugging
+        return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+
+
+@routes.route('/calculate-taxes', methods=['POST'])
+def calculate_taxes_route():
+    """
+    Calculate taxes based on the provided income and investment data stored in the session.
+
+    Returns:
+        JSON response with a message explaining the tax calculation.
+    """
+    try:
+        # Retrieve data from session
+        tax_data = session.get('tax_data')
+        if not tax_data:
+            return jsonify({"error": "Required financial data is missing from the session"}), 400
+
+        # Package the data in a dictionary to pass to calculate_taxes function
+        result = calculate_taxes(tax_data)
+        response_text = result['explanation']
         return jsonify({"message": response_text}), 200
     except Exception as e:
         return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+
+
 
 
 @routes.route('/optimize-portfolio', methods=['POST'])
@@ -138,7 +153,6 @@ def monte_carlo_route():
     except Exception as e:
         return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
 
-
 @routes.route('/tax-loss-harvesting', methods=['POST'])
 def tax_loss_harvesting_route():
     """
@@ -150,8 +164,13 @@ def tax_loss_harvesting_route():
         JSON response with a summary of the tax loss harvesting results.
     """
     try:
-        portfolio = session.get('portfolio', [])  # Retrieve from session
-        tax_bracket = request.json.get('tax_bracket', 0.2)
+        portfolio = session.get('portfolio')  # Retrieve portfolio from session
+        tax_data = session.get('tax_data')  # Retrieve tax data from session
+
+        if not portfolio or not tax_data:
+            return jsonify({"error": "Required portfolio or tax data is missing from the session"}), 400
+
+        tax_bracket = tax_data.get('tax_bracket', 0.2)
 
         # Use the enhanced tax loss harvesting logic
         recommended_sales, total_losses, tax_savings = enhanced_tax_loss_harvesting(portfolio, tax_bracket)
@@ -166,5 +185,7 @@ def tax_loss_harvesting_route():
         return jsonify({"message": response_text}), 200
     except Exception as e:
         return jsonify({"error": "An internal error occurred", "details": str(e)}), 500
+
+
 
 
