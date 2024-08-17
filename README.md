@@ -48,12 +48,14 @@ The Tax Alpha Calculator is a Python-based Flask application designed to optimiz
 2. The application will be accessible at http://127.0.0.1:5000.
 
 
+### API Limitations
+
+The Alpha Vantage API allows for a maximum of 25 requests per minute. If you exceed this limit, you may encounter errors such as "No valid stock data found for the portfolio" or "Invalid stock data for [symbol], skipping." These errors indicate that the API did not return the expected data due to the rate limit being exceeded or due to an invalid stock symbol. If this happens, wait a minute before making additional requests or verify the stock symbols you are using.
+
 ### API Endpoints
 
 1. POST /input-portfolio:
-   1. Input your portfolio and tax-related data. 
-   This route stores your portfolio and tax information in the session, 
-   so it can be used across multiple routes.
+   1. Input your portfolio and tax-related data. This route stores your portfolio and tax information in the session, so it can be used across multiple routes.
    2. Example:
       curl -b cookies.txt -X POST http://127.0.0.1:5000/input-portfolio -H "Content-Type: application/json" -d '{
       "portfolio": [
@@ -68,26 +70,50 @@ The Tax Alpha Calculator is a Python-based Flask application designed to optimiz
       }'
 
 2. POST /calculate-taxes:
-   1. Calculate taxes based on the provided income and investment data. 
-   This route does not require additional inputs if the data has already been provided 
-   via /input-portfolio.
+   1. Calculate taxes based on the provided income and investment data. This route does not require additional inputs if the data has already been provided via /input-portfolio.
    2. Example:
    curl -b cookies.txt -X POST http://127.0.0.1:5000/calculate-taxes
 
 3. POST /optimize-portfolio:
-   1. Optimize your portfolio allocation. 
-   This route uses the portfolio data stored in the session.
+   1. Optimize your portfolio allocation. This route uses the portfolio data stored in the session.
    2. Example:
    curl -b cookies.txt -X POST http://127.0.0.1:5000/optimize-portfolio
 
 4. POST /monte-carlo
-   1. Perform a Monte Carlo simulation to predict the future performance of the portfolio. 
-   This route uses the portfolio data stored in the session.
+   1. Perform a Monte Carlo simulation to predict the future performance of the portfolio. This route uses the portfolio data stored in the session.
    2. Example:
    curl -b cookies.txt -X POST http://127.0.0.1:5000/monte-carlo
 
 5. POST /tax-loss-harvesting
-   1. Perform tax loss harvesting on the user's portfolio to minimize tax liabilities. 
-   This route uses the portfolio data and tax bracket stored in the session.
+   1. Perform tax loss harvesting on the user's portfolio to minimize tax liabilities. This route uses the portfolio data and tax bracket stored in the session.
    2. Example:
    curl -b cookies.txt -X POST http://127.0.0.1:5000/tax-loss-harvesting
+
+
+### Code Structure
+
+1. app/: Contains the Flask application code, including routes and calculations.
+
+2. tests/: Contains unit tests to ensure the functionality of the application.
+
+3. requirements.txt: Lists the dependencies required to run the application.
+
+4. .env: Environment variables configuration file.
+
+
+### Using .gitignore
+
+A .gitignore file is included to prevent sensitive and unnecessary files from being pushed to the repository. This includes:
+
+1. .env: Contains sensitive environment variables like API keys and secret keys.
+
+2. __pycache__/: Python cache files that are generated during execution.
+
+3. .venv/: Virtual environment directory, which contains dependencies and should not be committed.
+
+
+
+### Contributing
+
+If you'd like to contribute to the project, please fork the repository, create a new branch, and submit a pull request. Make sure your code follows clean coding principles, including DRY (Don't Repeat Yourself), meaningful variable names, and comprehensive documentation.
+
