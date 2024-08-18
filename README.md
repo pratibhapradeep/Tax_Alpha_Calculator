@@ -22,7 +22,7 @@ The Tax Alpha Calculator is a Python-based Flask application designed to optimiz
 - Numpy
 - SciPy
 
-### Installation
+### Installation and Setup
 
 1. Clone the repository:
    git clone https://github.com/your-username/tax-alpha-calculator.git
@@ -33,11 +33,18 @@ The Tax Alpha Calculator is a Python-based Flask application designed to optimiz
    source .venv/bin/activate
    pip install -r requirements.txt
 
-3. Set up the Alpha Vantage API key as an environment variable:
-   export ALPHA_VANTAGE_API_KEY="your_api_key_here"
+3. Obtain an Alpha Vantage API key
+   1. Go to the Alpha Vantage Website - https://www.alphavantage.co/support/#api-key
+   2. Sign up for a free API key
 
-4. Set up the Flask secret key:
-   export FLASK_SECRET_KEY="your_secret_key_here"
+4. Setup the Flask secret key:
+   1. The FLASK_SECRET_KEY is used to secure session data in your Flask application.
+   2. Generate a random string or use an online generator for your secret key.
+
+5. In the root directory of the project, create a new file called '.env'. Add the following lines to it:
+   ALPHA_VANTAGE_API_KEY="your_api_key_here"
+   FLASK_SECRET_KEY="your_secret_key_here"
+   Replace "your_api_key_here" with your actual API key, and do the same for your Flask secret key
 
 
 ### Running the Application
